@@ -9,8 +9,9 @@
 AlliedBoatReinforcements = { "dd", "dd" }
 TimerTicks = DateTime.Minutes(21)
 ObjectiveBuildings = { Chronosphere, AlliedTechCenter }
-ScientistType = { "chan", "chan", "chan", "chan" }
-ScientistFootprint = { CPos.New(28, 83), CPos.New(29, 83) }
+ScientistTypes = { "chan", "chan", "chan", "chan" }
+ScientistDiscoveryFootprint = { CPos.New(28, 83), CPos.New(29, 83) }
+ScientistEvacuationFootprint = { CPos.New(29, 60), CPos.New(29, 61), CPos.New(29, 62), CPos.New(29, 63), CPos.New(29, 64), CPos.New(29, 65), CPos.New(29, 66) }
 
 InitialAlliedReinforcements = function()
 	Trigger.AfterDelay(DateTime.Seconds(2), function()
@@ -21,14 +22,57 @@ InitialAlliedReinforcements = function()
 end
 
 CreateScientists = function()
-	scientists = Actor.Create(ScientistType, true, { Location = ScientistsExit.Location, Owner = greece })
-	scientists.Scatter()
-	Trigger.OnAllKilled(scientists, function()
+	scientists = Reinforcements.Reinforce(greece, ScientistTypes, { ScientistsExit.Location })
+	Utils.Do(scientists, function(s)
+		s.Move(s.Location + CVec.New(0, 1))
+		s.Scatter()
+	end)
+
+	local flare = Actor.Create("flare", true, { Owner = greece, Location = DefaultCameraPosition.Location + CVec.New(-1, 0) })
+	Trigger.AfterDelay(DateTime.Seconds(2), function() Media.PlaySpeechNotification(player, "SignalFlareNorth") end)
+
+	Trigger.OnAnyKilled(scientists, function()
+		Media.PlaySpeechNotification(greece, "ObjectiveNotMet")
 		greece.MarkFailedObjective(EvacuateScientists)
 	end)
-	Trigger.OnAllRemovedFromWorld(scientists, function()
-		greece.MarkCompletedObjective(EvacuateScientists)
+
+	-- Add the footprint trigger in a frame end task (delay 0) to avoid crashes
+	local left = #scientists
+	Trigger.AfterDelay(0, function()
+		local changeOwnerTrigger = Trigger.OnEnteredFootprint(ScientistEvacuationFootprint, function(a, id)
+			if a.Owner == greece and a.Type == "chan" then
+				a.Owner = germany
+				a.Stop()
+				a.Move(MCVEntry.Location)
+
+				-- Constantly try to reach the exit (and thus avoid getting stuck if the path was blocked)
+				Trigger.OnIdle(a, function()
+					a.Move(MCVEntry.Location)
+				end)
+			end
+		end)
+
+		-- Use a cell trigger to destroy the scientists preventing the player from causing glitchs by blocking the path
+		Trigger.OnEnteredFootprint({ MCVEntry.Location }, function(a, id)
+			if a.Owner == germany then
+				a.Stop()
+				a.Destroy()
+
+				left = left - 1
+				if left == 0 then
+					Trigger.RemoveFootprintTrigger(id)
+					Trigger.RemoveFootprintTrigger(changeOwnerTrigger)
+					flare.Destroy()
+
+					if not greece.IsObjectiveCompleted(EvacuateScientists) and not greece.IsObjectiveFailed(EvacuateScientists) then
+						Media.PlaySpeechNotification(greece, "ObjectiveMet")
+						greece.MarkCompletedObjective(EvacuateScientists)
+					end
+				end
+			end
+		end)
 	end)
+
 end
 
 FinishTimer = function()
@@ -87,9 +131,9 @@ WorldLoaded = function()
 	ussr = Player.GetPlayer("USSR")
 	germany = Player.GetPlayer("Germany")
 
-	DefendChronosphere = greece.AddPrimaryObjective("Defend the Chronosphere and the Tech Center \nat all costs.")
-	KeepBasePowered = greece.AddPrimaryObjective("The Chronosphere must have power when the \ntimer runs out.")
-	EvacuateScientists = greece.AddSecondaryObjective("Evacuate scientists from the island to \nthe Tech Center.")
+	DefendChronosphere = greece.AddPrimaryObjective("Defend the Chronosphere and the Tech Center\nat all costs.")
+	KeepBasePowered = greece.AddPrimaryObjective("The Chronosphere must have power when the\ntimer runs out.")
+	EvacuateScientists = greece.AddSecondaryObjective("Evacuate all scientists from the island to\nthe west.")
 	BeatAllies = ussr.AddPrimaryObjective("Defeat the Allied forces.")
 
 	Trigger.OnObjectiveCompleted(greece, function(p, id)
@@ -135,7 +179,7 @@ WorldLoaded = function()
 		greece.MarkFailedObjective(DefendChronosphere)
 	end)
 
-	Trigger.OnEnteredFootprint(ScientistFootprint, function(a, id)
+	Trigger.OnEnteredFootprint(ScientistDiscoveryFootprint, function(a, id)
 		if a.Owner == greece and not scientistsTriggered then
 			scientistsTriggered = true
 			Trigger.RemoveFootprintTrigger(id)
