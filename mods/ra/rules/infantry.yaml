@@ -430,6 +430,7 @@ E7:
 	VoiceAnnouncement:
 		RequiresCondition: produced
 		Voice: Build
+		Chance: 50
 	AnnounceOnKill:
 	Voiced:
 		VoiceSet: TanyaVoice
