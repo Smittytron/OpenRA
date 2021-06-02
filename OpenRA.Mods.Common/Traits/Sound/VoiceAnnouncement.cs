@@ -30,6 +30,9 @@ namespace OpenRA.Mods.Common.Traits.Sound
 		[Desc("Disable the announcement after it has been triggered.")]
 		public readonly bool OneShot = false;
 
+		[Desc("Chance that the announcement will play.")]
+		public readonly int Chance = 100;
+
 		public override object Create(ActorInitializer init) { return new VoiceAnnouncement(this); }
 	}
 
@@ -46,6 +49,9 @@ namespace OpenRA.Mods.Common.Traits.Sound
 				return;
 
 			if (Info.OneShot && triggered)
+				return;
+
+			if (self.World.SharedRandom.Next(100) > Info.Chance)
 				return;
 
 			triggered = true;
